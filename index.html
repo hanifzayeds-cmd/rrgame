@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Face Flappy — Play with your face</title>
+<style>
+  :root{ --gold:#ffd93d; }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{
+    height:100%;overflow:hidden;background:#0b1220;
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;
+  }
+  #game{position:fixed;inset:0;display:block}
+
+  /* ---------- HUD ---------- */
+  #hud{
+    position:fixed;top:0;left:0;right:0;padding:16px 20px;
+    display:flex;justify-content:space-between;align-items:flex-start;
+    pointer-events:none;color:#fff;z-index:5;
+  }
+  #score{
+    font-size:clamp(32px,7vw,56px);font-weight:900;line-height:1;
+    text-shadow:0 3px 0 rgba(0,0,0,.18),0 10px 26px rgba(0,0,0,.3);
+  }
+  #status{
+    font-size:12px;font-weight:700;letter-spacing:.02em;padding:7px 13px;border-radius:999px;
+    background:rgba(8,20,35,.45);backdrop-filter:blur(8px);
+    border:1px solid rgba(255,255,255,.18);white-space:nowrap;transition:background .25s;
+  }
+  #status.ok{background:rgba(22,140,80,.6)}
+  #status.warn{background:rgba(185,65,40,.6)}
+
+  /* ---------- Camera preview ---------- */
+  #camPreview{
+    position:fixed;right:16px;bottom:16px;width:160px;height:120px;
+    border-radius:16px;overflow:hidden;background:#000;z-index:6;
+    border:2px solid rgba(255,255,255,.28);
+    box-shadow:0 12px 34px rgba(0,0,0,.45);
+    transform:scaleX(-1);              /* mirror like a selfie */
+    transition:opacity .3s;
+  }
+  #camPreview video,#camPreview canvas{
+    position:absolute;inset:0;width:100%;height:100%;display:block;
+  }
+  #camPreview video{object-fit:cover}
+  #camPreview canvas{pointer-events:none}
+
+  /* ---------- Screens ---------- */
+  .screen{
+    position:fixed;inset:0;display:grid;place-items:center;z-index:10;padding:20px;
+    background:radial-gradient(120% 100% at 50% 0%,rgba(10,25,45,.55),rgba(6,12,24,.88));
+    backdrop-filter:blur(10px);
+    animation:fade .35s ease both;
+  }
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+  .hidden{display:none !important}
+
+  .card{
+    width:min(430px,92vw);text-align:center;color:#fff;
+    background:linear-gradient(180deg,rgba(255,255,255,.14),rgba(255,255,255,.055));
+    border:1px solid rgba(255,255,255,.18);border-radius:28px;
+    padding:34px 26px 26px;
+    box-shadow:0 30px 70px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.2);
+  }
+  h1{
+    font-size:clamp(28px,8.5vw,42px);font-weight:900;letter-spacing:.06em;
+    background:linear-gradient(180deg,#fff,#ffd93d);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    filter:drop-shadow(0 4px 12px rgba(255,200,0,.25));
+  }
+  h2{font-size:clamp(24px,7vw,34px);font-weight:900;letter-spacing:.04em}
+  .sub{margin-top:6px;font-size:14px;font-weight:700;color:var(--gold);letter-spacing:.14em;text-transform:uppercase}
+  .desc{margin-top:16px;font-size:15px;line-height:1.55;color:rgba(255,255,255,.82)}
+  .desc b{color:#fff}
+  .hint{margin-top:14px;font-size:11.5px;line-height:1.5;color:rgba(255,255,255,.45)}
+  .score-big{
+    font-size:clamp(52px,16vw,80px);font-weight:900;line-height:1.05;color:var(--gold);
+    text-shadow:0 6px 24px rgba(255,200,0,.35);
+  }
+  button{
+    margin-top:24px;width:100%;padding:16px 20px;border:0;border-radius:18px;cursor:pointer;
+    font-family:inherit;font-size:16px;font-weight:900;letter-spacing:.03em;color:#20160a;
+    background:linear-gradient(180deg,#ffe680,#ffc21e);
+    box-shadow:0 8px 0 #c98a10,0 18px 32px rgba(0,0,0,.4);
+    transition:transform .08s ease,box-shadow .08s ease,opacity .2s;
+  }
+  button:active{transform:translateY(4px);box-shadow:0 4px 0 #c98a10,0 8px 18px rgba(0,0,0,.4)}
+  button:disabled{opacity:.6;cursor:default;transform:none}
+</style>
+</head>
+<body>
+
+<canvas id="game"></canvas>
+
+<div id="hud">
+  <div id="score">0</div>
+  <div id="status">Camera off</div>
+</div>
+
+<div id="camPreview" class="hidden">
+  <video id="cam" playsinline autoplay muted></video>
+  <canvas id="camOverlay" width="160" height="120"></canvas>
+</div>
+
+<!-- Start screen -->
+<div id="menu" class="screen">
+  <div class="card">
+    <h1>FACE FLAPPY</h1>
+    <p class="sub">Fly with your face</p>
+    <p class="desc">
+      Move your head <b>up</b> and <b>down</b> — the bird follows your face.<br>
+      Dodge the pipes and beat your high score!
+    </p>
+    <button id="startBtn">Start with camera</button>
+    <p class="hint">Your camera feed is processed entirely on your device.<br>Nothing is uploaded anywhere.</p>
+  </div>
+</div>
+
+<!-- Game over screen -->
+<div id="gameover" class="screen hidden">
+  <div class="card">
+    <h2>Game Over</h2>
+    <div class="score-big" id="finalScore">0</div>
+    <p class="desc">Best score: <b id="bestScore">0</b></p>
+    <button id="againBtn">Play again</button>
+  </div>
+</div>
+
+<script type="module">
+/* =====================================================================
+   Face Flappy — webcam controlled Flappy Bird
+   ===================================================================== */
+
+/* ------------------------- helpers ------------------------- */
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const rand  = (a, b) => a + Math.random() * (b - a);
+
+/* ------------------------- DOM ------------------------- */
+const canvas    = document.getElementById('game');
+const ctx       = canvas.getContext('2d');
+const video     = document.getElementById('cam');
+const camWrap   = document.getElementById('camPreview');
+const camOver   = document.getElementById('camOverlay');
+const octx      = camOver.getContext('2d');
+const scoreEl   = document.getElementById('score');
+const statusEl  = document.getElementById('status');
+const menuEl    = document.getElementById('menu');
+const overEl    = document.getElementById('gameover');
+const finalEl   = document.getElementById('finalScore');
+const bestEl    = document.getElementById('bestScore');
+const startBtn  = document.getElementById('startBtn');
+const againBtn  = document.getElementById('againBtn');
+
+/* ------------------------- dimensions ------------------------- */
+let W = 0, H = 0, S = 1;
+const groundH = () => 78 * S;
+const pipeSpacing = () => Math.max(280, Math.min(430, W * 0.7));
+
+/* ------------------------- game state ------------------------- */
+const G = {
+  mode: 'menu',                 // menu | playing | over
+  score: 0,
+  best: Number(localStorage.getItem('faceFlappy.best') || 0),
+  pipes: [],
+  bird: { x: 0, y: 0, r: 18, vy: 0, tilt: 0 },
+  speed: 0,
+  t: 0,
+  groundX: 0,
+  clouds: [],
+  flash: 0
+};
+
+/* ------------------------- face state ------------------------- */
+let faceYraw      = 0.5;   // normalised 0..1 (top..bottom of camera frame)
+let faceY         = 0.5;   // smoothed
+let faceSeen      = false;
+let faceBox       = null;  // normalised {x,y,w,h}
+let faceReady     = false;
+let faceDetector  = null;
+let lastVideoTime = -1;
+let lastSeen      = 0;
+let usingPointer  = false;
+let pointerY      = 0;
+
+/* ------------------------- resize ------------------------- */
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width  = Math.floor(W * dpr);
+  canvas.height = Math.floor(H * dpr);
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  S = clamp(H / 720, 0.6, 1.7);
+  G.bird.x = W * 0.28;
+  G.bird.r = 17 * S;
+
+  if (G.mode !== 'playing') G.bird.y = H * 0.5;
+
+  // clouds
+  G.clouds = [];
+  for (let i = 0; i < 7; i++) {
+    G.clouds.push({
+      x: Math.random() * W,
+      y: rand(0.05, 0.5) * H,
+      s: rand(0.6, 1.5) * S,
+      v: rand(6, 16) * S
+    });
+  }
+}
+window.addEventListener('resize', resize);
+
+/* =====================================================================
+   CAMERA + FACE DETECTION
+   ===================================================================== */
+const MODEL_URL =
+  'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite';
+const VISION_PKG = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10';
+
+async function initCamera() {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+    audio: false
+  });
+  video.srcObject = stream;
+  await video.play();
+  camWrap.classList.remove('hidden');
+
+  // Wait until we actually have pixels
+  await new Promise(res => {
+    if (video.videoWidth) return res();
+    video.addEventListener('loadeddata', res, { once: true });
+  });
+}
+
+async function initFaceDetector() {
+  const vision = await import(/* @vite-ignore */ `${VISION_PKG}/vision_bundle.mjs`);
+  const fileset = await vision.FilesetResolver.forVisionTasks(`${VISION_PKG}/wasm`);
+
+  const make = (delegate) => vision.FaceDetector.createFromOptions(fileset, {
+    baseOptions: { modelAssetPath: MODEL_URL, delegate },
+    runningMode: 'VIDEO',
+    minDetectionConfidence: 0.4
+  });
+
+  try {
+    faceDetector = await make('GPU');
+  } catch (e) {
+    console.warn('GPU delegate failed, falling back to CPU', e);
+    faceDetector = await make('CPU');
+  }
+  faceReady = true;
+}
+
+/* continuous detection loop (runs independently of the render loop) */
+function detectLoop() {
+  if (faceReady && video.readyState >= 2 && video.videoWidth) {
+    const now = performance.now();
+    if (video.currentTime !== lastVideoTime) {
+      lastVideoTime = video.currentTime;
+      try {
+        const res = faceDetector.detectForVideo(video, now);
+        handleDetections(res);
+      } catch (err) { /* ignore single-frame hiccups */ }
+    }
+  }
+  requestAnimationFrame(detectLoop);
+}
+
+function handleDetections(res) {
+  const dets = (res && res.detections) || [];
+  if (dets.length) {
+    // pick the biggest face
+    let best = dets[0];
+    for (const d of dets) {
+      if (d.boundingBox.width * d.boundingBox.height >
+          best.boundingBox.width * best.boundingBox.height) best = d;
+    }
+    const b  = best.boundingBox;
+    const vw = video.videoWidth, vh = video.videoHeight;
+
+    faceYraw = clamp((b.originY + b.height / 2) / vh, 0, 1);
+    faceBox  = { x: b.originX / vw, y: b.originY / vh, w: b.width / vw, h: b.height / vh };
+    faceSeen = true;
+    lastSeen = performance.now();
+  } else {
+    faceSeen = false;
+    faceBox  = null;
+  }
+  drawCamOverlay();
+}
+
+function drawCamOverlay() {
+  const cw = camOver.width, ch = camOver.height;
+  octx.clearRect(0, 0, cw, ch);
+  if (!faceBox || !video.videoWidth) return;
+
+  const vw = video.videoWidth, vh = video.videoHeight;
+  const scale = Math.max(cw / vw, ch / vh);          // object-fit: cover
+  const dw = vw * scale, dh = vh * scale;
+  const ox = (cw - dw) / 2, oy = (ch - dh) / 2;
+
+  const x = ox + faceBox.x * vw * scale;
+  const y = oy + faceBox.y * vh * scale;
+  const w = faceBox.w * vw * scale;
+  const h = faceBox.h * vh * scale;
+
+  octx.strokeStyle = '#4ade80';
+  octx.lineWidth = 2;
+  octx.strokeRect(x, y, w, h);
+}
+
+/* =====================================================================
+   AUDIO (tiny synth blips)
+   ===================================================================== */
+let actx = null;
+function beep(freq, dur, type = 'sine', vol = 0.05) {
+  try {
+    if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(freq, actx.currentTime);
+    g.gain.setValueAtTime(vol, actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + dur);
+    o.connect(g); g.connect(actx.destination);
+    o.start(); o.stop(actx.currentTime + dur);
+  } catch (e) {}
+}
+
+/* =====================================================================
+   GAME LOGIC
+   ===================================================================== */
+function makePipe(x) {
+  const w    = 74 * S;
+  const gapH = clamp(205 - G.score * 3, 138, 205) * S;
+  const pad  = 58 * S;
+  const top  = pad + gapH / 2;
+  const bot  = H - groundH() - pad - gapH / 2;
+  const gapY = bot > top ? rand(top, bot) : H * 0.5;
+  return { x, w, gapY, gapH, scored: false };
+}
+
+function resetGame() {
+  G.score   = 0;
+  G.pipes   = [];
+  G.t       = 0;
+  G.flash   = 0;
+  G.speed   = 195 * S;
+  G.bird.y  = H * 0.5;
+  G.bird.vy = 0;
+  G.bird.tilt = 0;
+  scoreEl.textContent = '0';
+
+  const sp = pipeSpacing();
+  let x = W + 80;
+  for (let i = 0; i < 4; i++) { G.pipes.push(makePipe(x)); x += sp; }
+}
+
+function startGame() {
+  resetGame();
+  G.mode = 'playing';
+  overEl.classList.add('hidden');
+  menuEl.classList.add('hidden');
+}
+
+function gameOver() {
+  G.mode = 'over';
+  G.flash = 1;
+  beep(180, 0.22, 'sawtooth', 0.07);
+  setTimeout(() => beep(110, 0.3, 'sawtooth', 0.06), 90);
+
+  if (G.score > G.best) {
+    G.best = G.score;
+    localStorage.setItem('faceFlappy.best', String(G.best));
+  }
+  finalEl.textContent = G.score;
+  bestEl.textContent  = G.best;
+  overEl.classList.remove('hidden');
+}
+
+function circleRect(cx, cy, r, rx, ry, rw, rh) {
+  const nx = clamp(cx, rx, rx + rw);
+  const ny = clamp(cy, ry, ry + rh);
+  const dx = cx - nx, dy = cy - ny;
+  return dx * dx + dy * dy < r * r;
+}
+
+function update(dt) {
+  G.t += dt;
+
+  const b  = G.bird;
+  const gh = groundH();
+  const playTop    = b.r + 6;
+  const playBottom = H - gh - b.r - 6;
+
+  /* ---- vertical target from face (or pointer fallback) ---- */
+  let norm;
+  if (usingPointer) {
+    norm = clamp(pointerY / H, 0, 1);
+  } else {
+    // amplify the head movement a bit around the centre of the frame
+    norm = clamp(0.5 + (faceY - 0.5) * 1.9, 0, 1);
+  }
+  const target = playTop + norm * (playBottom - playTop);
+
+  /* ---- smooth follow ---- */
+  const prevY = b.y;
+  const k = 1 - Math.exp(-13 * dt);
+  b.y += (target - b.y) * k;
+  b.y = clamp(b.y, playTop, playBottom);
+  b.vy = dt > 0 ? (b.y - prevY) / dt : 0;
+  b.tilt = clamp(b.vy / (1500 * S), -0.5, 1.0);
+
+  /* ---- speed ---- */
+  G.speed = Math.min(195 * S + G.score * 4.5 * S, 430 * S);
+  const dx = G.speed * dt;
+
+  /* ---- move pipes ---- */
+  for (const p of G.pipes) p.x -= dx;
+  G.pipes = G.pipes.filter(p => p.x + p.w > -60);
+
+  /* ---- spawn ---- */
+  const last = G.pipes[G.pipes.length - 1];
+  if (!last || last.x < W - pipeSpacing()) {
+    G.pipes.push(makePipe(last ? last.x + pipeSpacing() : W + 60));
+  }
+
+  /* ---- scoring ---- */
+  for (const p of G.pipes) {
+    if (!p.scored && p.x + p.w < b.x - b.r) {
+      p.scored = true;
+      G.score++;
+      scoreEl.textContent = G.score;
+      beep(760 + Math.min(G.score, 12) * 40, 0.08, 'square', 0.045);
+    }
+  }
+
+  /* ---- collision ---- */
+  const r = b.r * 0.82;                 // slightly forgiving hitbox
+  for (const p of G.pipes) {
+    const topH = p.gapY - p.gapH / 2;
+    const botY = p.gapY + p.gapH / 2;
+    if (circleRect(b.x, b.y, r, p.x, -50, p.w, topH + 50) ||
+        circleRect(b.x, b.y, r, p.x, botY, p.w, H - botY + 50)) {
+      gameOver();
+      return;
+    }
+  }
+
+  G.groundX += dx;
+}
+
+/* =====================================================================
+   RENDERING
+   ===================================================================== */
+function roundRect(x, y, w, h, r) {
+  if (ctx.roundRect) {
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, r);
+  } else {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+}
+
+function drawSky() {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0,    '#2b8fd6');
+  g.addColorStop(0.45, '#63c6e8');
+  g.addColorStop(1,    '#b9ecf5');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  // sun glow
+  const sun = ctx.createRadialGradient(W * 0.82, H * 0.14, 0, W * 0.82, H * 0.14, H * 0.45);
+  sun.addColorStop(0, 'rgba(255,244,190,.55)');
+  sun.addColorStop(1, 'rgba(255,244,190,0)');
+  ctx.fillStyle = sun;
+  ctx.fillRect(0, 0, W, H);
+}
+
+function drawClouds(dt) {
+  ctx.fillStyle = 'rgba(255,255,255,.75)';
+  for (const c of G.clouds) {
+    c.x -= c.v * dt;
+    if (c.x < -140 * S) { c.x = W + 140 * S; c.y = rand(0.04, 0.5) * H; }
+    const s = c.s;
+    ctx.beginPath();
+    ctx.arc(c.x,           c.y,          22 * s, 0, Math.PI * 2);
+    ctx.arc(c.x + 24 * s,  c.y + 6 * s,  17 * s, 0, Math.PI * 2);
+    ctx.arc(c.x - 26 * s,  c.y + 7 * s,  15 * s, 0, Math.PI * 2);
+    ctx.arc(c.x + 4 * s,   c.y - 13 * s, 16 * s, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawPipeBody(x, y, w, h, isTop) {
+  if (h <= 0) return;
+  const capH    = 26 * S;
+  const capOver = 7 * S;
+
+  const grad = ctx.createLinearGradient(x, 0, x + w, 0);
+  grad.addColorStop(0,    '#2f6417');
+  grad.addColorStop(0.20, '#7ed24a');
+  grad.addColorStop(0.55, '#57ab2b');
+  grad.addColorStop(1,    '#26540f');
+
+  ctx.fillStyle = grad;
+  ctx.fillRect(x, y, w, h);
+
+  const cy = isTop ? y + h - capH : y;
+  ctx.fillStyle = grad;
+  roundRect(x - capOver, cy, w + capOver * 2, capH, 5 * S);
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(15,45,8,.5)';
+  ctx.lineWidth = Math.max(1, 1.6 * S);
+  ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  roundRect(x - capOver + 0.5, cy + 0.5, w + capOver * 2 - 1, capH - 1, 5 * S);
+  ctx.stroke();
+}
+
+function drawPipes() {
+  const gh = groundH();
+  for (const p of G.pipes) {
+    const topH = p.gapY - p.gapH / 2;
+    const botY = p.gapY + p.gapH / 2;
+    drawPipeBody(p.x, -60, p.w, topH + 60, true);
+    drawPipeBody(p.x, botY, p.w, H - gh - botY, false);
+  }
+}
+
+function drawGround() {
+  const gh = groundH();
+  const y  = H - gh;
+
+  ctx.fillStyle = '#dcc96d';
+  ctx.fillRect(0, y, W, gh);
+  ctx.fillStyle = '#8fbf3f';
+  ctx.fillRect(0, y, W, 11 * S);
+
+  // moving diagonal stripes
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, y + 11 * S, W, gh - 11 * S);
+  ctx.clip();
+  const step = 36 * S;
+  const off  = -(G.groundX % step);
+  ctx.fillStyle = 'rgba(0,0,0,.07)';
+  for (let x = off - step * 2; x < W + step * 2; x += step * 2) {
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + step, y);
+    ctx.lineTo(x + step - gh, H);
+    ctx.lineTo(x - gh, H);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+
+  ctx.fillStyle = 'rgba(0,0,0,.16)';
+  ctx.fillRect(0, y + 11 * S, W, 2 * S);
+}
+
+function drawBird() {
+  const b = G.bird;
+  const r = b.r;
+
+  ctx.save();
+  ctx.translate(b.x, b.y);
+  ctx.rotate(clamp(b.tilt, -0.45, 0.95));
+
+  // ground shadow
+  ctx.save();
+  ctx.globalAlpha = 0.16;
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.ellipse(0, r * 1.05, r * 1.05, r * 0.4, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // tail
+  ctx.fillStyle = '#e8a90f';
+  ctx.beginPath();
+  ctx.moveTo(-r * 0.95, -r * 0.15);
+  ctx.lineTo(-r * 1.75, -r * 0.55);
+  ctx.lineTo(-r * 1.62, r * 0.35);
+  ctx.closePath();
+  ctx.fill();
+
+  // body
+  const g = ctx.createLinearGradient(0, -r, 0, r);
+  g.addColorStop(0, '#ffe98a');
+  g.addColorStop(0.55, '#ffd93d');
+  g.addColorStop(1, '#f0ae14');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, r * 1.18, r * 1.02, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.lineWidth = Math.max(1.4, r * 0.12);
+  ctx.strokeStyle = '#c98a10';
+  ctx.stroke();
+
+  // wing (flaps)
+  const flap = Math.sin(G.t * 16) * 0.5 + 0.5;
+  ctx.save();
+  ctx.translate(-r * 0.18, r * 0.12);
+  ctx.rotate(-0.5 + flap * 0.9);
+  ctx.fillStyle = '#fff4c2';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, r * 0.68, r * 0.42, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#d8a521';
+  ctx.lineWidth = Math.max(1, r * 0.08);
+  ctx.stroke();
+  ctx.restore();
+
+  // beak
+  ctx.fillStyle = '#ff8c1a';
+  ctx.beginPath();
+  ctx.moveTo(r * 0.82, -r * 0.20);
+  ctx.lineTo(r * 1.62,  r * 0.10);
+  ctx.lineTo(r * 0.82,  r * 0.42);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = '#c96a08';
+  ctx.lineWidth = Math.max(1, r * 0.07);
+  ctx.stroke();
+
+  // eye
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(r * 0.42, -r * 0.34, r * 0.40, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#c98a10';
+  ctx.lineWidth = Math.max(1, r * 0.07);
+  ctx.stroke();
+
+  ctx.fillStyle = '#1b1b1b';
+  ctx.beginPath();
+  ctx.arc(r * 0.54, -r * 0.34, r * 0.19, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = 'rgba(255,255,255,.9)';
+  ctx.beginPath();
+  ctx.arc(r * 0.47, -r * 0.44, r * 0.07, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  drawSky();
+  drawClouds(G.mode === 'playing' ? 1 : 0.4);
+  drawPipes();
+  drawGround();
+  drawBird();
+
+  if (G.flash > 0) {
+    ctx.fillStyle = `rgba(255,255,255,${G.flash * 0.55})`;
+    ctx.fillRect(0, 0, W, H);
+    G.flash = Math.max(0, G.flash - 0.06);
+  }
+}
+
+/* =====================================================================
+   MAIN LOOP
+   ===================================================================== */
+let last = performance.now();
+let statusText = '';
+
+function loop(now) {
+  const dt = Math.min((now - last) / 1000, 0.05);
+  last = now;
+
+  /* smooth the raw face signal */
+  faceY += (faceYraw - faceY) * (1 - Math.exp(-11 * dt));
+
+  if (G.mode === 'playing') {
+    update(dt);
+  } else {
+    // idle ambience
+    G.t += dt;
+    G.groundX += 60 * S * dt;
+    for (const c of G.clouds) {
+      c.x -= c.v * dt * 0.4;
+      if (c.x < -140 * S) c.x = W + 140 * S;
+    }
+    if (G.mode === 'menu') {
+      G.bird.y = H * 0.5 + Math.sin(G.t * 2) * 14 * S;
+      G.bird.tilt = Math.sin(G.t * 2 + 1) * 0.12;
+    }
+  }
+
+  /* status pill */
+  let txt, cls;
+  if (usingPointer) {
+    txt = '🖱️ Mouse control'; cls = 'warn';
+  } else if (!faceReady) {
+    txt = '⏳ Loading face model…'; cls = '';
+  } else if (faceSeen || performance.now() - lastSeen < 700) {
+    txt = '😀 Face locked'; cls = 'ok';
+  } else {
+    txt = '👀 Looking for your face…'; cls = 'warn';
+  }
+  if (txt !== statusText) {
+    statusText = txt;
+    statusEl.textContent = txt;
+    statusEl.className = cls;
+  }
+
+  draw();
+  requestAnimationFrame(loop);
+}
+
+/* =====================================================================
+   EVENTS
+   ===================================================================== */
+startBtn.addEventListener('click', async () => {
+  startBtn.disabled = true;
+  startBtn.textContent = 'Starting camera…';
+
+  try {
+    await initCamera();
+    try {
+      await initFaceDetector();
+      requestAnimationFrame(detectLoop);
+    } catch (e) {
+      console.warn('Face model failed to load:', e);
+      usingPointer = true;
+      camWrap.classList.add('hidden');
+    }
+  } catch (e) {
+    console.warn('Camera unavailable:', e);
+    usingPointer = true;
+    camWrap.classList.add('hidden');
+  }
+
+  startGame();
+  startBtn.disabled = false;
+  startBtn.textContent = 'Start with camera';
+});
+
+againBtn.addEventListener('click', () => startGame());
+
+/* pointer fallback */
+function onPointerMove(e) {
+  const y = e.touches ? e.touches[0].clientY : e.clientY;
+  pointerY = y;
+}
+window.addEventListener('mousemove', onPointerMove);
+window.addEventListener('touchmove', (e) => { onPointerMove(e); }, { passive: true });
+
+/* keyboard fallback too */
+window.addEventListener('keydown', (e) => {
+  if (e.key === ' ' || e.key === 'Enter') {
+    if (G.mode === 'over') startGame();
+  }
+});
+
+/* =====================================================================
+   BOOT
+   ===================================================================== */
+resize();
+bestEl.textContent = G.best;
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
