@@ -571,6 +571,216 @@ function drawGround() {
   ctx.fillRect(0, y + 11 * S, W, 2 * S);
 }
 
+/* =====================================================================
+   SEERAGA SAMBA BIRYANI BOWL  (replaces the bird)
+   ===================================================================== */
+
+/* stable random grain layout for the rice heap (generated once) */
+const BIRYANI_GRAINS = (() => {
+  const pal = ['#fffdf4', '#fdf2d2', '#f9e8b6', '#fdf7e4', '#f4dd9e', '#fff8e6'];
+  const out = [];
+  for (let i = 0; i < 64; i++) {
+    const a = Math.random() * Math.PI;
+    const d = Math.sqrt(Math.random());
+    out.push({
+      x:   Math.cos(a) * d,          // -1 .. 1
+      y:   Math.sin(a) * d,          //  0 .. 1 (0 = base, 1 = top)
+      rot: Math.random() * Math.PI,
+      len: 0.20 + Math.random() * 0.16,
+      wid: 0.070 + Math.random() * 0.035,
+      col: pal[(Math.random() * pal.length) | 0]
+    });
+  }
+  return out;
+})();
+
+/* garnish layout, normalised to the rice dome (nx, ny, angle) */
+const SAFFRON = [[-0.34, 0.30, -0.45], [0.26, 0.46, 0.75], [0.02, 0.16, 1.45], [-0.55, 0.55, 0.25]];
+const CASHEWS = [[-0.46, 0.62, -0.50], [0.30, 0.72, 0.70], [0.50, 0.34, 0.15]];
+const ONIONS  = [[-0.62, 0.44, 0.45], [-0.16, 0.86, 1.05], [0.42, 0.58, -0.50],
+                 [0.62, 0.22, 0.30], [-0.60, 0.74, -0.85]];
+const MINTS   = [[0.10, 0.86, -0.55], [-0.22, 0.70, 0.95]];
+
+/* the copper / clay bowl outline */
+function bowlPath(rimRX, rimRY, rimY, botY, r) {
+  ctx.beginPath();
+  ctx.moveTo(rimRX, rimY);
+  ctx.ellipse(0, rimY, rimRX, rimRY, 0, 0, Math.PI);        // front rim arc
+  ctx.bezierCurveTo(-rimRX * 1.00, rimY + r * 0.70, -rimRX * 0.54, botY, 0, botY);
+  ctx.bezierCurveTo( rimRX * 0.54, botY,  rimRX * 1.00, rimY + r * 0.70, rimRX, rimY);
+  ctx.closePath();
+}
+
+function drawBiryaniBowl(r) {
+  const rimRX = r * 1.22;          // rim half-width
+  const rimRY = r * 0.27;          // rim ellipse half-height
+  const rimY  = r * 0.22;          // rim centre
+  const botY  = r * 1.02;          // bottom of the bowl
+
+  const riceRX   = rimRX * 0.98;
+  const riceBase = rimY + rimRY;   // front rim level
+  const riceTop  = -r * 0.85;
+  const riceRY   = riceBase - riceTop;
+
+  /* ---------- 1. back rim (sits behind the rice) ---------- */
+  ctx.beginPath();
+  ctx.ellipse(0, rimY, rimRX, rimRY, 0, Math.PI, Math.PI * 2);
+  ctx.strokeStyle = '#6d3413';
+  ctx.lineWidth = Math.max(1.5, r * 0.13);
+  ctx.stroke();
+
+  /* ---------- 2. the rice heap ---------- */
+  ctx.save();
+  ctx.beginPath();
+  ctx.ellipse(0, riceBase, riceRX, riceRY, 0, Math.PI, 0);  // dome, flat base
+  ctx.closePath();
+  ctx.clip();
+
+  const riceGrad = ctx.createLinearGradient(0, riceTop, 0, riceBase);
+  riceGrad.addColorStop(0.00, '#fffdf6');
+  riceGrad.addColorStop(0.40, '#fdf2d3');
+  riceGrad.addColorStop(0.75, '#f7e3ab');
+  riceGrad.addColorStop(1.00, '#e9cd8a');
+  ctx.fillStyle = riceGrad;
+  ctx.fillRect(-riceRX, riceTop, riceRX * 2, riceRY + 2);
+
+  /* --- individual seeraga samba grains --- */
+  for (const g of BIRYANI_GRAINS) {
+    const gx = g.x * riceRX * 0.95;
+    const gy = riceBase - g.y * riceRY * 0.95;
+    ctx.save();
+    ctx.translate(gx, gy);
+    ctx.rotate(g.rot);
+    ctx.fillStyle = g.col;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * g.len, r * g.wid, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  /* --- saffron threads --- */
+  ctx.lineCap = 'round';
+  for (const [sx, sy, sa] of SAFFRON) {
+    ctx.save();
+    ctx.translate(sx * riceRX * 0.86, riceBase - sy * riceRY * 0.86);
+    ctx.rotate(sa);
+    ctx.strokeStyle = '#d95f16';
+    ctx.lineWidth = Math.max(0.9, r * 0.055);
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.22, 0);
+    ctx.quadraticCurveTo(0, -r * 0.10, r * 0.22, 0);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /* --- roasted cashew nuts --- */
+  for (const [nx, ny, na] of CASHEWS) {
+    ctx.save();
+    ctx.translate(nx * riceRX * 0.86, riceBase - ny * riceRY * 0.86);
+    ctx.rotate(na);
+    const cg = ctx.createLinearGradient(0, -r * 0.20, 0, r * 0.20);
+    cg.addColorStop(0, '#f8e3b4');
+    cg.addColorStop(1, '#d5a457');
+    ctx.fillStyle = cg;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * 0.28, r * 0.19, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(140,92,34,.55)';
+    ctx.lineWidth = Math.max(0.6, r * 0.035);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /* --- crisp fried onions --- */
+  for (const [ox, oy, oa] of ONIONS) {
+    ctx.save();
+    ctx.translate(ox * riceRX * 0.86, riceBase - oy * riceRY * 0.86);
+    ctx.rotate(oa);
+    ctx.strokeStyle = '#a9641d';
+    ctx.lineWidth = Math.max(1, r * 0.06);
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.20, r * 0.04);
+    ctx.quadraticCurveTo(0, -r * 0.16, r * 0.20, r * 0.04);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /* --- mint leaves --- */
+  for (const [mx, my, ma] of MINTS) {
+    ctx.save();
+    ctx.translate(mx * riceRX * 0.86, riceBase - my * riceRY * 0.86);
+    ctx.rotate(ma);
+    ctx.fillStyle = '#3f9c3a';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * 0.32, r * 0.17, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(22,84,24,.75)';
+    ctx.lineWidth = Math.max(0.6, r * 0.035);
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.30, 0);
+    ctx.lineTo(r * 0.30, 0);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.restore();   // end of rice clip
+
+  /* ---------- 3. the bowl ---------- */
+  bowlPath(rimRX, rimRY, rimY, botY, r);
+
+  const bowlGrad = ctx.createLinearGradient(-rimRX, 0, rimRX, 0);
+  bowlGrad.addColorStop(0.00, '#6b3110');
+  bowlGrad.addColorStop(0.18, '#b8632c');
+  bowlGrad.addColorStop(0.42, '#e79a58');
+  bowlGrad.addColorStop(0.62, '#c06a33');
+  bowlGrad.addColorStop(0.84, '#8e4a1e');
+  bowlGrad.addColorStop(1.00, '#5e2a0d');
+  ctx.fillStyle = bowlGrad;
+  ctx.fill();
+
+  /* specular highlight + base shading, clipped to the bowl */
+  ctx.save();
+  bowlPath(rimRX, rimRY, rimY, botY, r);
+  ctx.clip();
+
+  ctx.globalAlpha = 0.20;
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.ellipse(-rimRX * 0.42, rimY + r * 0.44, rimRX * 0.15, r * 0.34, 0.22, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.globalAlpha = 0.22;
+  ctx.fillStyle = '#3a1606';
+  ctx.beginPath();
+  ctx.ellipse(0, botY + r * 0.12, rimRX * 0.70, r * 0.30, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  /* ---------- 4. front rim lip ---------- */
+  ctx.beginPath();
+  ctx.ellipse(0, rimY, rimRX, rimRY, 0, 0, Math.PI);
+  ctx.strokeStyle = '#f2bd82';
+  ctx.lineWidth = Math.max(1.2, r * 0.11);
+  ctx.stroke();
+
+  /* a faint aroma wisp so the bowl reads as hot food */
+  ctx.save();
+  ctx.globalAlpha = 0.30;
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = Math.max(1, r * 0.06);
+  ctx.lineCap = 'round';
+  const wisp = Math.sin(G.t * 3) * r * 0.10;
+  ctx.beginPath();
+  ctx.moveTo(-r * 0.30, riceTop + r * 0.22);
+  ctx.quadraticCurveTo(-r * 0.50 + wisp, riceTop - r * 0.16, -r * 0.28, riceTop - r * 0.48);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo( r * 0.26, riceTop + r * 0.18);
+  ctx.quadraticCurveTo( r * 0.48 - wisp, riceTop - r * 0.20, r * 0.24, riceTop - r * 0.54);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawBird() {
   const b = G.bird;
   const r = b.r;
@@ -584,76 +794,11 @@ function drawBird() {
   ctx.globalAlpha = 0.16;
   ctx.fillStyle = '#000';
   ctx.beginPath();
-  ctx.ellipse(0, r * 1.05, r * 1.05, r * 0.4, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, r * 1.10, r * 1.20, r * 0.42, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 
-  // tail
-  ctx.fillStyle = '#e8a90f';
-  ctx.beginPath();
-  ctx.moveTo(-r * 0.95, -r * 0.15);
-  ctx.lineTo(-r * 1.75, -r * 0.55);
-  ctx.lineTo(-r * 1.62, r * 0.35);
-  ctx.closePath();
-  ctx.fill();
-
-  // body
-  const g = ctx.createLinearGradient(0, -r, 0, r);
-  g.addColorStop(0, '#ffe98a');
-  g.addColorStop(0.55, '#ffd93d');
-  g.addColorStop(1, '#f0ae14');
-  ctx.fillStyle = g;
-  ctx.beginPath();
-  ctx.ellipse(0, 0, r * 1.18, r * 1.02, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.lineWidth = Math.max(1.4, r * 0.12);
-  ctx.strokeStyle = '#c98a10';
-  ctx.stroke();
-
-  // wing (flaps)
-  const flap = Math.sin(G.t * 16) * 0.5 + 0.5;
-  ctx.save();
-  ctx.translate(-r * 0.18, r * 0.12);
-  ctx.rotate(-0.5 + flap * 0.9);
-  ctx.fillStyle = '#fff4c2';
-  ctx.beginPath();
-  ctx.ellipse(0, 0, r * 0.68, r * 0.42, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = '#d8a521';
-  ctx.lineWidth = Math.max(1, r * 0.08);
-  ctx.stroke();
-  ctx.restore();
-
-  // beak
-  ctx.fillStyle = '#ff8c1a';
-  ctx.beginPath();
-  ctx.moveTo(r * 0.82, -r * 0.20);
-  ctx.lineTo(r * 1.62,  r * 0.10);
-  ctx.lineTo(r * 0.82,  r * 0.42);
-  ctx.closePath();
-  ctx.fill();
-  ctx.strokeStyle = '#c96a08';
-  ctx.lineWidth = Math.max(1, r * 0.07);
-  ctx.stroke();
-
-  // eye
-  ctx.fillStyle = '#fff';
-  ctx.beginPath();
-  ctx.arc(r * 0.42, -r * 0.34, r * 0.40, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = '#c98a10';
-  ctx.lineWidth = Math.max(1, r * 0.07);
-  ctx.stroke();
-
-  ctx.fillStyle = '#1b1b1b';
-  ctx.beginPath();
-  ctx.arc(r * 0.54, -r * 0.34, r * 0.19, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = 'rgba(255,255,255,.9)';
-  ctx.beginPath();
-  ctx.arc(r * 0.47, -r * 0.44, r * 0.07, 0, Math.PI * 2);
-  ctx.fill();
+  drawBiryaniBowl(r);
 
   ctx.restore();
 }
