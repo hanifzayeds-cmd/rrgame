@@ -110,7 +110,7 @@
     <h1>FACE FLAPPY</h1>
     <p class="sub">Fly with your face</p>
     <p class="desc">
-      Move your head <b>up</b> and <b>down</b> — the biryani bowl follows your face.<br>
+      Move your head <b>up</b> and <b>down</b> — the bird follows your face.<br>
       Dodge the pipes and beat your high score!
     </p>
     <button id="startBtn">Start with camera</button>
@@ -131,7 +131,6 @@
 <script type="module">
 /* =====================================================================
    Face Flappy — webcam controlled Flappy Bird
-   with a realistic Seeraga Samba Biryani bowl
    ===================================================================== */
 
 /* ------------------------- helpers ------------------------- */
@@ -174,10 +173,10 @@ const G = {
 };
 
 /* ------------------------- face state ------------------------- */
-let faceYraw      = 0.5;
-let faceY         = 0.5;
+let faceYraw      = 0.5;   // normalised 0..1 (top..bottom of camera frame)
+let faceY         = 0.5;   // smoothed
 let faceSeen      = false;
-let faceBox       = null;
+let faceBox       = null;  // normalised {x,y,w,h}
 let faceReady     = false;
 let faceDetector  = null;
 let lastVideoTime = -1;
@@ -231,6 +230,7 @@ async function initCamera() {
   await video.play();
   camWrap.classList.remove('hidden');
 
+  // Wait until we actually have pixels
   await new Promise(res => {
     if (video.videoWidth) return res();
     video.addEventListener('loadeddata', res, { once: true });
@@ -256,6 +256,7 @@ async function initFaceDetector() {
   faceReady = true;
 }
 
+/* continuous detection loop (runs independently of the render loop) */
 function detectLoop() {
   if (faceReady && video.readyState >= 2 && video.videoWidth) {
     const now = performance.now();
@@ -264,7 +265,7 @@ function detectLoop() {
       try {
         const res = faceDetector.detectForVideo(video, now);
         handleDetections(res);
-      } catch (err) { }
+      } catch (err) { /* ignore single-frame hiccups */ }
     }
   }
   requestAnimationFrame(detectLoop);
@@ -273,6 +274,7 @@ function detectLoop() {
 function handleDetections(res) {
   const dets = (res && res.detections) || [];
   if (dets.length) {
+    // pick the biggest face
     let best = dets[0];
     for (const d of dets) {
       if (d.boundingBox.width * d.boundingBox.height >
@@ -298,7 +300,7 @@ function drawCamOverlay() {
   if (!faceBox || !video.videoWidth) return;
 
   const vw = video.videoWidth, vh = video.videoHeight;
-  const scale = Math.max(cw / vw, ch / vh);
+  const scale = Math.max(cw / vw, ch / vh);          // object-fit: cover
   const dw = vw * scale, dh = vh * scale;
   const ox = (cw - dw) / 2, oy = (ch - dh) / 2;
 
@@ -313,7 +315,7 @@ function drawCamOverlay() {
 }
 
 /* =====================================================================
-   AUDIO
+   AUDIO (tiny synth blips)
    ===================================================================== */
 let actx = null;
 function beep(freq, dur, type = 'sine', vol = 0.05) {
@@ -395,14 +397,17 @@ function update(dt) {
   const playTop    = b.r + 6;
   const playBottom = H - gh - b.r - 6;
 
+  /* ---- vertical target from face (or pointer fallback) ---- */
   let norm;
   if (usingPointer) {
     norm = clamp(pointerY / H, 0, 1);
   } else {
+    // amplify the head movement a bit around the centre of the frame
     norm = clamp(0.5 + (faceY - 0.5) * 1.9, 0, 1);
   }
   const target = playTop + norm * (playBottom - playTop);
 
+  /* ---- smooth follow ---- */
   const prevY = b.y;
   const k = 1 - Math.exp(-13 * dt);
   b.y += (target - b.y) * k;
@@ -410,17 +415,21 @@ function update(dt) {
   b.vy = dt > 0 ? (b.y - prevY) / dt : 0;
   b.tilt = clamp(b.vy / (1500 * S), -0.5, 1.0);
 
+  /* ---- speed ---- */
   G.speed = Math.min(195 * S + G.score * 4.5 * S, 430 * S);
   const dx = G.speed * dt;
 
+  /* ---- move pipes ---- */
   for (const p of G.pipes) p.x -= dx;
   G.pipes = G.pipes.filter(p => p.x + p.w > -60);
 
+  /* ---- spawn ---- */
   const last = G.pipes[G.pipes.length - 1];
   if (!last || last.x < W - pipeSpacing()) {
     G.pipes.push(makePipe(last ? last.x + pipeSpacing() : W + 60));
   }
 
+  /* ---- scoring ---- */
   for (const p of G.pipes) {
     if (!p.scored && p.x + p.w < b.x - b.r) {
       p.scored = true;
@@ -430,7 +439,8 @@ function update(dt) {
     }
   }
 
-  const r = b.r * 0.82;
+  /* ---- collision ---- */
+  const r = b.r * 0.82;                 // slightly forgiving hitbox
   for (const p of G.pipes) {
     const topH = p.gapY - p.gapH / 2;
     const botY = p.gapY + p.gapH / 2;
@@ -470,6 +480,7 @@ function drawSky() {
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
 
+  // sun glow
   const sun = ctx.createRadialGradient(W * 0.82, H * 0.14, 0, W * 0.82, H * 0.14, H * 0.45);
   sun.addColorStop(0, 'rgba(255,244,190,.55)');
   sun.addColorStop(1, 'rgba(255,244,190,0)');
@@ -537,6 +548,7 @@ function drawGround() {
   ctx.fillStyle = '#8fbf3f';
   ctx.fillRect(0, y, W, 11 * S);
 
+  // moving diagonal stripes
   ctx.save();
   ctx.beginPath();
   ctx.rect(0, y + 11 * S, W, gh - 11 * S);
@@ -560,391 +572,10 @@ function drawGround() {
 }
 
 /* =====================================================================
-   REALISTIC SEERAGA SAMBA BIRYANI BOWL
+   BIRYANI BOWL (IMAGE REPLACEMENT)
    ===================================================================== */
-
-/* ---- 3D grain cloud + chunks, generated once ---- */
-const BIRYANI_DATA = (() => {
-  const grains = [];
-  const chunks = [];
-
-  // colour palettes for different "states" of the rice
-  const PLAIN   = ['#fffef9', '#fdf9ec', '#fefcf4', '#f8f2df', '#fffdf6'];
-  const SAFFRON = ['#fbeaa6', '#f8e08c', '#fdefc4', '#f3d77a', '#fae8a0'];
-  const MASALA  = ['#e8a94e', '#dd9a3d', '#eeb45f', '#d18a30', '#e5a24a'];
-  const DEEP    = ['#c06b26', '#b35e1d', '#cc7a30', '#aa5216', '#c46f2a'];
-
-  const N = 340;
-  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-
-  for (let i = 0; i < N; i++) {
-    const t = i / N;
-    const yNorm = 1 - Math.pow(t, 0.55);
-    const rAtY = Math.sqrt(Math.max(0, 1 - yNorm * yNorm));
-
-    // gentle irregularity so the mound isn't a perfect dome
-    const wobble = 0.90 + 0.10 * Math.sin(i * 2.7) * Math.cos(i * 1.3);
-    const theta = i * goldenAngle;
-
-    const x = Math.cos(theta) * rAtY * wobble;
-    const z = Math.sin(theta) * rAtY * wobble;
-
-    const roll = Math.random();
-    let pal;
-    if (roll < 0.42)       pal = PLAIN;
-    else if (roll < 0.68)  pal = SAFFRON;
-    else if (roll < 0.88)  pal = MASALA;
-    else                   pal = DEEP;
-
-    const col = pal[(Math.random() * pal.length) | 0];
-
-    grains.push({
-      x, y: yNorm, z,
-      rot: (Math.random() - 0.5) * Math.PI,
-      len: 0.14 + Math.random() * 0.10,   // short, plump seeraga samba grain
-      wid: 0.060 + Math.random() * 0.025,
-      col,
-      depth: (z + 1) / 2,                 // 0 = back, 1 = front
-    });
-  }
-
-  // back-to-front for correct overdraw
-  grains.sort((a, b) => a.z - b.z);
-
-  // chicken / masala chunks
-  const CHUNK_POS = [
-    { x: -0.30, y: 0.55, s: 0.30, col: '#8a3a10' },
-    { x:  0.28, y: 0.42, s: 0.34, col: '#7a3008' },
-    { x:  0.02, y: 0.72, s: 0.28, col: '#9a4a18' },
-    { x: -0.55, y: 0.30, s: 0.24, col: '#8f3e14' },
-    { x:  0.55, y: 0.62, s: 0.26, col: '#7d320c' },
-  ];
-  for (const c of CHUNK_POS) {
-    chunks.push({ x: c.x, y: c.y, s: c.s, col: c.col, seed: Math.random() * 100 });
-  }
-
-  return { grains, chunks };
-})();
-
-/* bowl outline (front wall only – the part visible below the rim) */
-function bowlPath(rimRX, rimRY, rimY, botY, r) {
-  ctx.beginPath();
-  ctx.moveTo(rimRX, rimY);
-  ctx.bezierCurveTo(rimRX * 1.05, rimY + r * 0.75, rimRX * 0.55, botY, 0, botY);
-  ctx.bezierCurveTo(-rimRX * 0.55, botY, -rimRX * 1.05, rimY + r * 0.75, -rimRX, rimY);
-  // front rim arc (left -> right through the bottom of the rim ellipse)
-  ctx.ellipse(0, rimY, rimRX, rimRY, 0, Math.PI, 0, true);
-  ctx.closePath();
-}
-
-function drawGrains(r, riceRX, riceBase, riceRY) {
-  for (const g of BIRYANI_DATA.grains) {
-    const gx = g.x * riceRX * 0.96;
-    const gy = riceBase - g.y * riceRY * 0.96;
-    const d = g.depth;
-    const scale = 0.70 + d * 0.50;
-    const alpha = 0.65 + d * 0.35;
-
-    const gl = r * g.len * scale;
-    const gw = r * g.wid * scale;
-
-    ctx.save();
-    ctx.translate(gx, gy);
-    ctx.rotate(g.rot);
-    ctx.globalAlpha = alpha;
-
-    // soft contact shadow
-    ctx.fillStyle = 'rgba(70,35,5,0.20)';
-    ctx.beginPath();
-    ctx.ellipse(gl * 0.10, gw * 0.30, gl * 1.05, gw * 1.20, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // grain body — pointed oval, like a real rice grain
-    ctx.fillStyle = g.col;
-    ctx.beginPath();
-    ctx.moveTo(-gl, 0);
-    ctx.quadraticCurveTo(-gl * 0.5, -gw * 1.4, 0, -gw);
-    ctx.quadraticCurveTo(gl * 0.5, -gw * 1.4, gl, 0);
-    ctx.quadraticCurveTo(gl * 0.5, gw * 1.4, 0, gw);
-    ctx.quadraticCurveTo(-gl * 0.5, gw * 1.4, -gl, 0);
-    ctx.closePath();
-    ctx.fill();
-
-    // glossy highlight (rice looks slightly shiny)
-    ctx.fillStyle = 'rgba(255,255,255,0.50)';
-    ctx.beginPath();
-    ctx.ellipse(-gl * 0.20, -gw * 0.40, gl * 0.55, gw * 0.40, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.restore();
-  }
-}
-
-function drawChunks(r, riceRX, riceBase, riceRY) {
-  for (const c of BIRYANI_DATA.chunks) {
-    const cx = c.x * riceRX * 0.90;
-    const cy = riceBase - c.y * riceRY * 0.90;
-    const cs = r * c.s;
-
-    ctx.save();
-    ctx.translate(cx, cy);
-
-    // irregular blob shape
-    const pts = 10;
-    const outer = [];
-    for (let i = 0; i < pts; i++) {
-      const a = (i / pts) * Math.PI * 2;
-      const noise = 0.70 + 0.30 * Math.abs(Math.sin(c.seed + i * 1.7));
-      outer.push({
-        x: Math.cos(a) * cs * noise,
-        y: Math.sin(a) * cs * noise * 0.85,
-      });
-    }
-
-    ctx.beginPath();
-    ctx.moveTo((outer[0].x + outer[pts - 1].x) / 2, (outer[0].y + outer[pts - 1].y) / 2);
-    for (let i = 0; i < pts; i++) {
-      const p = outer[i];
-      const n = outer[(i + 1) % pts];
-      ctx.quadraticCurveTo(p.x, p.y, (p.x + n.x) / 2, (p.y + n.y) / 2);
-    }
-    ctx.closePath();
-
-    const cg = ctx.createRadialGradient(-cs * 0.2, -cs * 0.3, 0, 0, 0, cs * 1.3);
-    cg.addColorStop(0, '#c07840');
-    cg.addColorStop(0.5, c.col);
-    cg.addColorStop(1, '#3a1505');
-    ctx.fillStyle = cg;
-    ctx.fill();
-
-    // spice texture spots
-    ctx.fillStyle = 'rgba(255,200,120,0.25)';
-    for (let i = 0; i < 4; i++) {
-      const a = c.seed + i * 1.7;
-      ctx.beginPath();
-      ctx.arc(Math.cos(a) * cs * 0.4, Math.sin(a) * cs * 0.3, cs * 0.12, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    ctx.restore();
-  }
-}
-
-function drawGarnishes(r, riceRX, riceBase, riceRY) {
-  // crispy fried onions (birista)
-  const ONIONS = [
-    [-0.55, 0.55, 0.4], [-0.20, 0.82, -0.6], [0.30, 0.70, 0.9],
-    [0.55, 0.42, -0.3], [-0.65, 0.35, 1.1], [0.10, 0.90, 0.2],
-    [-0.40, 0.25, -0.8], [0.60, 0.20, 0.5],
-  ];
-  for (const [ox, oy, oa] of ONIONS) {
-    ctx.save();
-    ctx.translate(ox * riceRX * 0.92, riceBase - oy * riceRY * 0.92);
-    ctx.rotate(oa);
-    ctx.strokeStyle = '#8a4a12';
-    ctx.lineWidth = Math.max(1.2, r * 0.07);
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(-r * 0.24, r * 0.02);
-    ctx.quadraticCurveTo(0, -r * 0.18, r * 0.24, r * 0.02);
-    ctx.stroke();
-    ctx.strokeStyle = '#c47a30';
-    ctx.lineWidth = Math.max(0.6, r * 0.035);
-    ctx.beginPath();
-    ctx.moveTo(-r * 0.20, -r * 0.01);
-    ctx.quadraticCurveTo(0, -r * 0.16, r * 0.20, -r * 0.01);
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  // roasted cashews
-  const CASHEWS = [[-0.45, 0.68, -0.5], [0.32, 0.78, 0.7], [0.55, 0.50, 0.1], [-0.15, 0.40, -0.9]];
-  for (const [nx, ny, na] of CASHEWS) {
-    ctx.save();
-    ctx.translate(nx * riceRX * 0.92, riceBase - ny * riceRY * 0.92);
-    ctx.rotate(na);
-    const cg = ctx.createLinearGradient(0, -r * 0.20, 0, r * 0.20);
-    cg.addColorStop(0, '#fcecc4');
-    cg.addColorStop(0.6, '#e8c98a');
-    cg.addColorStop(1, '#b88340');
-    ctx.fillStyle = cg;
-    ctx.beginPath();
-    ctx.ellipse(0, 0, r * 0.30, r * 0.20, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(120,75,20,.55)';
-    ctx.lineWidth = Math.max(0.6, r * 0.035);
-    ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,0.45)';
-    ctx.beginPath();
-    ctx.ellipse(-r * 0.08, -r * 0.06, r * 0.12, r * 0.06, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  }
-
-  // mint leaves
-  const MINTS = [[0.05, 0.90, -0.5], [-0.25, 0.75, 0.9]];
-  for (const [mx, my, ma] of MINTS) {
-    ctx.save();
-    ctx.translate(mx * riceRX * 0.92, riceBase - my * riceRY * 0.92);
-    ctx.rotate(ma);
-    const mg = ctx.createLinearGradient(-r * 0.3, 0, r * 0.3, 0);
-    mg.addColorStop(0, '#2d7a30');
-    mg.addColorStop(0.5, '#4aad48');
-    mg.addColorStop(1, '#1f5c22');
-    ctx.fillStyle = mg;
-    ctx.beginPath();
-    ctx.ellipse(0, 0, r * 0.34, r * 0.19, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(15,60,18,.7)';
-    ctx.lineWidth = Math.max(0.6, r * 0.035);
-    ctx.beginPath();
-    ctx.moveTo(-r * 0.32, 0);
-    ctx.lineTo(r * 0.32, 0);
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  // saffron threads
-  const SAFFRON = [[-0.38, 0.30, -0.45], [0.30, 0.50, 0.75], [0.02, 0.20, 1.45]];
-  for (const [sx, sy, sa] of SAFFRON) {
-    ctx.save();
-    ctx.translate(sx * riceRX * 0.92, riceBase - sy * riceRY * 0.92);
-    ctx.rotate(sa);
-    ctx.strokeStyle = '#e0651a';
-    ctx.lineWidth = Math.max(1, r * 0.055);
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(-r * 0.22, 0);
-    ctx.quadraticCurveTo(0, -r * 0.10, r * 0.22, 0);
-    ctx.stroke();
-    ctx.restore();
-  }
-}
-
-function drawBiryaniBowl(r) {
-  const rimRX  = r * 1.25;
-  const rimRY  = r * 0.26;
-  const rimY   = r * 0.20;
-  const botY   = r * 1.05;
-
-  const riceRX   = rimRX * 0.99;
-  const riceBase = rimY + rimRY;     // front rim level
-  const riceTop  = -r * 0.92;
-  const riceRY   = riceBase - riceTop;
-
-  /* ---------- 1. bowl body (front wall, behind the rice) ---------- */
-  bowlPath(rimRX, rimRY, rimY, botY, r);
-
-  const bowlGrad = ctx.createLinearGradient(-rimRX, 0, rimRX, 0);
-  bowlGrad.addColorStop(0.00, '#4a2008');
-  bowlGrad.addColorStop(0.12, '#8c4520');
-  bowlGrad.addColorStop(0.35, '#c87a3c');
-  bowlGrad.addColorStop(0.55, '#a85728');
-  bowlGrad.addColorStop(0.78, '#7a3812');
-  bowlGrad.addColorStop(1.00, '#3d1a06');
-  ctx.fillStyle = bowlGrad;
-  ctx.fill();
-
-  // bowl sheen + base shadow (clipped to bowl)
-  ctx.save();
-  bowlPath(rimRX, rimRY, rimY, botY, r);
-  ctx.clip();
-
-  ctx.globalAlpha = 0.35;
-  ctx.fillStyle = '#fff';
-  ctx.beginPath();
-  ctx.ellipse(-rimRX * 0.55, rimY + r * 0.30, rimRX * 0.18, r * 0.55, 0.15, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.globalAlpha = 0.28;
-  ctx.fillStyle = '#1c0802';
-  ctx.beginPath();
-  ctx.ellipse(0, botY + r * 0.15, rimRX * 0.75, r * 0.32, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-
-  /* ---------- 2. back rim (peeks above the rice) ---------- */
-  ctx.beginPath();
-  ctx.ellipse(0, rimY, rimRX, rimRY, 0, Math.PI, Math.PI * 2);
-  ctx.strokeStyle = '#5a2810';
-  ctx.lineWidth = Math.max(2, r * 0.14);
-  ctx.stroke();
-
-  /* ---------- 3. rice mound ---------- */
-  ctx.save();
-
-  // clip 1: dome shape
-  ctx.beginPath();
-  ctx.ellipse(0, riceBase, riceRX, riceRY, 0, Math.PI, Math.PI * 2);
-  ctx.closePath();
-  ctx.clip();
-
-  // clip 2: bowl opening (everything above the front rim curve)
-  ctx.beginPath();
-  ctx.moveTo(-rimRX, rimY);
-  ctx.lineTo(-rimRX, riceTop - 100);
-  ctx.lineTo( rimRX, riceTop - 100);
-  ctx.lineTo( rimRX, rimY);
-  ctx.ellipse(0, rimY, rimRX, rimRY, 0, 0, Math.PI, false);
-  ctx.closePath();
-  ctx.clip();
-
-  // base tint so no gaps show through
-  const baseGrad = ctx.createLinearGradient(0, riceTop, 0, riceBase);
-  baseGrad.addColorStop(0,   '#fef7e0');
-  baseGrad.addColorStop(0.5, '#f0d89a');
-  baseGrad.addColorStop(1,   '#d9b878');
-  ctx.fillStyle = baseGrad;
-  ctx.fillRect(-riceRX, riceTop - 5, riceRX * 2, riceRY + 10);
-
-  drawGrains(r, riceRX, riceBase, riceRY);
-  drawChunks(r, riceRX, riceBase, riceRY);
-  drawGarnishes(r, riceRX, riceBase, riceRY);
-
-  // subtle oil sheen over the rice
-  ctx.globalAlpha = 0.13;
-  ctx.fillStyle = '#fff8d0';
-  ctx.beginPath();
-  ctx.ellipse(-riceRX * 0.30, riceBase - riceRY * 0.60, riceRX * 0.25, riceRY * 0.15, -0.3, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.ellipse( riceRX * 0.20, riceBase - riceRY * 0.80, riceRX * 0.15, riceRY * 0.10,  0.2, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.globalAlpha = 1;
-
-  ctx.restore();
-
-  /* ---------- 4. front rim ---------- */
-  ctx.beginPath();
-  ctx.ellipse(0, rimY, rimRX, rimRY, 0, 0, Math.PI);
-  const rimGrad = ctx.createLinearGradient(0, rimY - rimRY, 0, rimY + rimRY);
-  rimGrad.addColorStop(0, '#f5d2a0');
-  rimGrad.addColorStop(1, '#c98a52');
-  ctx.strokeStyle = rimGrad;
-  ctx.lineWidth = Math.max(2, r * 0.13);
-  ctx.stroke();
-
-  /* ---------- 5. steam ---------- */
-  ctx.save();
-  ctx.globalAlpha = 0.22;
-  ctx.strokeStyle = '#fff';
-  ctx.lineWidth = Math.max(1.5, r * 0.06);
-  ctx.lineCap = 'round';
-  const sway = Math.sin(G.t * 2) * r * 0.10;
-  for (let i = 0; i < 3; i++) {
-    const sx = -r * 0.5 + i * r * 0.5;
-    const sy = riceTop + r * 0.1;
-    ctx.beginPath();
-    ctx.moveTo(sx, sy);
-    ctx.bezierCurveTo(
-      sx - r * 0.15 + sway, sy - r * 0.25,
-      sx + r * 0.15 + sway, sy - r * 0.50,
-      sx,                    sy - r * 0.75
-    );
-    ctx.stroke();
-  }
-  ctx.restore();
-}
+const biryaniImg = new Image();
+biryaniImg.src = 'br.png';
 
 function drawBird() {
   const b = G.bird;
@@ -963,7 +594,18 @@ function drawBird() {
   ctx.fill();
   ctx.restore();
 
-  drawBiryaniBowl(r);
+  if (biryaniImg.complete && biryaniImg.naturalWidth) {
+    const aspect = biryaniImg.naturalHeight / biryaniImg.naturalWidth;
+    const drawW = r * 3.4; // Scaled to perfectly map the collision hitbox radius
+    const drawH = drawW * aspect;
+    ctx.drawImage(biryaniImg, -drawW / 2, -drawH / 2 - r * 0.1, drawW, drawH);
+  } else {
+    // Fallback while loading
+    ctx.fillStyle = '#e79a58';
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
   ctx.restore();
 }
@@ -993,11 +635,13 @@ function loop(now) {
   const dt = Math.min((now - last) / 1000, 0.05);
   last = now;
 
+  /* smooth the raw face signal */
   faceY += (faceYraw - faceY) * (1 - Math.exp(-11 * dt));
 
   if (G.mode === 'playing') {
     update(dt);
   } else {
+    // idle ambience
     G.t += dt;
     G.groundX += 60 * S * dt;
     for (const c of G.clouds) {
@@ -1010,6 +654,7 @@ function loop(now) {
     }
   }
 
+  /* status pill */
   let txt, cls;
   if (usingPointer) {
     txt = '🖱️ Mouse control'; cls = 'warn';
@@ -1060,6 +705,7 @@ startBtn.addEventListener('click', async () => {
 
 againBtn.addEventListener('click', () => startGame());
 
+/* pointer fallback */
 function onPointerMove(e) {
   const y = e.touches ? e.touches[0].clientY : e.clientY;
   pointerY = y;
@@ -1067,6 +713,7 @@ function onPointerMove(e) {
 window.addEventListener('mousemove', onPointerMove);
 window.addEventListener('touchmove', (e) => { onPointerMove(e); }, { passive: true });
 
+/* keyboard fallback too */
 window.addEventListener('keydown', (e) => {
   if (e.key === ' ' || e.key === 'Enter') {
     if (G.mode === 'over') startGame();
